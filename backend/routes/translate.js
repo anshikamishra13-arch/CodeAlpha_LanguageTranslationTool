@@ -1,7 +1,7 @@
 const express = require('express');
 const authMiddleware = require('../middleware/auth');
 const Translation = require('../models/Translation');
-const { translate } = require('../services/aiService');
+const { translate } = require('../Services/aiService');
 
 const router = express.Router();
 
