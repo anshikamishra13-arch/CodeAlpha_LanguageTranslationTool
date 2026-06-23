@@ -12,4 +12,27 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // Production build optimizations
+    outDir: 'dist',
+    sourcemap: false, // Set to true for debugging production issues
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true, // Remove console logs in production
+      },
+    },
+    rollupOptions: {
+      output: {
+        // Code splitting for better caching
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+        },
+      },
+    },
+  },
+  // Environment variables
+  define: {
+    __DEV__: process.env.NODE_ENV === 'development',
+  },
 });

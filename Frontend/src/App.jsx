@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import Login from './pages/Login';
-import Translate from './pages/Translate';
+import Login from './page/login';
+import Translate from './page/Translate';
 
 export default function App() {
   const [user, setUser] = useState(null);

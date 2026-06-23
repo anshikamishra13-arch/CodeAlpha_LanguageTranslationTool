@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { translateAPI } from '../services/api';
+import { translateAPI } from '../Services/api';
 
 const LANGUAGES = [
   { code: 'auto', label: 'Detect language' },
