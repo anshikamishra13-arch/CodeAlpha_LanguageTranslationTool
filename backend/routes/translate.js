@@ -1,28 +1,46 @@
 const express = require('express');
 const authMiddleware = require('../middleware/auth');
 const Translation = require('../models/Translation');
-// Bug 1: fixed casing — 'Services' → 'services' (case-sensitive on Linux)
-const { translate } = require('../services/aiService');
+const { translate } = require('../Services/aiService');
+const { translateValidation, handleValidationErrors } = require('../middleware/validation');
 
 const router = express.Router();
 
 // POST /api/translate
-router.post('/translate', authMiddleware, async (req, res) => {
+router.post('/translate', authMiddleware, translateValidation, handleValidationErrors, async (req, res) => {
   try {
     const { inputText, sourceLang, targetLang } = req.body;
 
-    if (!inputText || !targetLang)
-      return res.status(400).json({ error: 'inputText and targetLang are required' });
-
-    // Bug 2: trim first, then validate — both checks operate on the trimmed value
+    // Trim and validate input
     const trimmedInput = inputText.trim();
-    if (trimmedInput.length === 0)
+    if (trimmedInput.length === 0) {
       return res.status(400).json({ error: 'Input text cannot be empty' });
-    if (trimmedInput.length > 5000)
-      return res.status(400).json({ error: 'Text too long (max 5000 characters)' });
+    }
 
-    const outputText = await translate(trimmedInput, sourceLang || 'auto', targetLang);
+    if (trimmedInput.length > 5000) {
+      return res.status(400).json({ error: 'Text too long (maximum 5000 characters)' });
+    }
 
+    // Call translation service
+    let outputText;
+    try {
+      outputText = await translate(trimmedInput, sourceLang || 'auto', targetLang);
+    } catch (translateErr) {
+      console.error('Translation service error:', translateErr.message);
+
+      // Handle specific translation errors
+      if (translateErr.message.includes('No AI API key')) {
+        return res.status(500).json({ error: 'Translation service not configured' });
+      }
+
+      if (translateErr.message.includes('HTTP')) {
+        return res.status(503).json({ error: 'Translation service unavailable' });
+      }
+
+      return res.status(500).json({ error: 'Translation failed. Please try again.' });
+    }
+
+    // Save translation to database
     const record = await Translation.create({
       userId: req.userId,
       inputText: trimmedInput,
@@ -31,39 +49,69 @@ router.post('/translate', authMiddleware, async (req, res) => {
       targetLang,
     });
 
-    res.json({ outputText, translationId: record._id });
+    res.json({
+      outputText,
+      translationId: record._id,
+      timestamp: record.createdAt,
+    });
   } catch (err) {
-    // Bug 3: log full error server-side, return only a generic message to client
-    console.error('Translation error:', err.message);
-    res.status(500).json({ error: 'Translation failed. Please try again.' });
+    console.error('Translation endpoint error:', {
+      message: err.message,
+      userId: req.userId,
+      timestamp: new Date().toISOString(),
+    });
+
+    res.status(500).json({ error: 'Failed to process translation. Please try again.' });
   }
 });
 
 // GET /api/history
 router.get('/history', authMiddleware, async (req, res) => {
   try {
-    // Bug 4: support pagination via query params — defaults to page 1, limit 10
-    const page  = Math.max(1, parseInt(req.query.page)  || 1);
-    const limit = Math.min(50, parseInt(req.query.limit) || 10); // cap at 50
-    const skip  = (page - 1) * limit;
+    // Pagination parameters with safe defaults
+    let page = Math.max(1, parseInt(req.query.page) || 1);
+    let limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
 
+    // Validate page and limit are valid numbers
+    if (!Number.isFinite(page) || !Number.isFinite(limit)) {
+      page = 1;
+      limit = 10;
+    }
+
+    const skip = (page - 1) * limit;
+
+    // Fetch history and total count in parallel
     const [history, total] = await Promise.all([
       Translation.find({ userId: req.userId })
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .select('-userId'),
+        .lean() // Use lean() for better performance
+        .select('-userId -__v'),
       Translation.countDocuments({ userId: req.userId }),
     ]);
 
+    const totalPages = Math.ceil(total / limit);
+
     res.json({
       history,
-      pagination: { total, page, limit, pages: Math.ceil(total / limit) },
+      pagination: {
+        total,
+        page,
+        limit,
+        pages: totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
     });
   } catch (err) {
-    // Bug 5: log the error — was silently swallowed before
-    console.error('History fetch error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch history' });
+    console.error('History fetch error:', {
+      message: err.message,
+      userId: req.userId,
+      timestamp: new Date().toISOString(),
+    });
+
+    res.status(500).json({ error: 'Failed to fetch translation history' });
   }
 });
 
