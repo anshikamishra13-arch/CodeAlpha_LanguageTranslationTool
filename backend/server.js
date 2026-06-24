@@ -137,8 +137,6 @@ app.use((err, req, res, next) => {
 // ====== DATABASE CONNECTION & SERVER START ======
 mongoose
   .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
   })
